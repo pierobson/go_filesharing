@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	connHost = "192.168.1.9"
+	connHost = "192.168.1.7"
 	connPort = "6666"
 	connType = "tcp4"
 )
@@ -75,7 +75,7 @@ func (users *users) removeUser(user *user) {
 
 func (users *users) shutdown() {
 	users.mtx.Lock()
-	b := []byte("\x00\x00\x00\x00")
+	b := []byte("shutdown")
 	(upointer(users.users)).each(notify, b)
 	users.mtx.Unlock()
 }
