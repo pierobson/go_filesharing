@@ -10,7 +10,7 @@ import (
 const (
 	connHost = "192.168.1.9"
 	connPort = "6666"
-	connType = "tcp"
+	connType = "tcp4"
 )
 
 type user struct {
