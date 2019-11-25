@@ -5,7 +5,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"bufio"
 )
 
 const (
@@ -14,7 +13,21 @@ const (
 	connType = "tcp"
 )
 
+type peers struct {
+	peers []*net.Conn
+}
+
+func (peers *peers) hasPeer(ip net.IP) bool {
+	for _, e := range peers.peers {
+		if (*e).RemoteAddr().String() == ip.String() {
+			return true
+		}
+	}
+	return false
+}
+
 var output string = ""
+var next_port uint32 = 667
 
 func updateScreen(msg string) {
 	output += string(msg)
@@ -24,61 +37,72 @@ func updateScreen(msg string) {
 	fmt.Printf("%s\n", output)
 }
 
+func (peers *peers) getPeers(b []byte) {
+	n := 0
+	for n < len(b) {
+		ip := net.IP(b[n*4 : n*4+4])
+		if !peers.hasPeer(ip) {
+			// Clients should listen on port 666 for new connections which negotiate port to actually connect on.
+			conn, e := net.Dial("tcp4", ip.String()+":666")
+			if e == nil {
+				_, e = conn.Write([]byte(string(next_port)))
+				if e == nil {
+					var a int = 0
+					var er bool = true
+					d := make([]byte, 4)
+					for a <= 0 && er {
+						a, e = conn.Read(d)
+						if e != nil {
+							er = false
+						} else {
+							conn.Close()
+							conn, e = net.Dial("tcp4", ip.String()+string(d))
+							peers.peers = append(peers.peers, &conn)
+						}
+					}
+				}
+			}
+		}
+		n += 4
+	}
+}
+
 func main() {
 	updateScreen("")
 
-	conn, err := net.Dial(connType, connHost + ":" + connPort)
+	conn, err := net.Dial(connType, connHost+":"+connPort)
 	if err != nil {
 		fmt.Println("Error connecting:", err.Error())
 		os.Exit(-1)
 	}
-
 	defer conn.Close()
-	go listener(conn)
 
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		msg, e := reader.ReadString('\n')
+	// Get the peer list
+	peers := new(peers)
+	n := 0
+	var e error
+	buf := make([]byte, 4)
+	for n <= 0 {
+		n, e = conn.Read(buf)
 		if e != nil {
-			fmt.Println("Failed to read message:", e.Error())
+			fmt.Println(e.Error())
+			os.Exit(-1)
 		}
-		if len(msg) > 0 {
-			updateScreen(msg)
+	}
+	peers.getPeers(buf)
 
-			switch msg {
-				case "/exit\n":
-					fmt.Println("Disconnecting...")
-					os.Exit(1)
-				case "/clear\n":
-					output = ""
-					updateScreen("")
-				default:
-					_, e = conn.Write([]byte(msg))
-					if e != nil {
-						fmt.Println("Failed to send message:", e.Error())
-					}
-			}
-		}
+	// Handle user input
+	go handleUser(peers)
+	// Handle new peers connecting
+	go handleNewPeers(peers)
+	// Listen for updates to the peer list
+	for {
+
 	}
 }
 
-func listener(conn net.Conn) {
-	buf := make([]byte, 1024)
+func handleUser(peers *peers) {
+}
 
-	for {
-		n := 0
-		var e error
-
-		for n <= 0 {
-			n, e = conn.Read(buf)
-			if e != nil {
-				if e.Error() == "EOF" {
-					updateScreen("Server Disconnected.\n")
-					os.Exit(0)
-				}
-			}
-		}
-
-		updateScreen(string(buf[:n]))
-	}
+func handleNewPeers(peers *peers) {
 }
