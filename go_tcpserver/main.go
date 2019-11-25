@@ -59,6 +59,7 @@ func (u upointer) find(user *user) int {
 func (users *users) addUser(user *user) {
 	users.mtx.Lock()
 	users.users = append(users.users, user)
+	fmt.Println("User connected:", user.conn.RemoteAddr())
 	b := users.connections()
 	(upointer(users.users)).each(notify, b)
 	users.mtx.Unlock()

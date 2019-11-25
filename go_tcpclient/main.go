@@ -17,6 +17,17 @@ const (
 	connType = "tcp4"
 )
 
+func GetIP() net.IP {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		fmt.Println("Couldn't get IP:", err.Error())
+		os.Exit(-1)
+	}
+	defer conn.Close()
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	return localAddr.IP
+}
+
 type peers struct {
 	peers []*net.Conn
 	mtx   *sync.Mutex
@@ -33,6 +44,7 @@ func (peers *peers) hasPeer(ip net.IP) bool {
 
 var output string = ""
 var nextPort int = 6665
+var ip string
 
 func clearScreen() {
 	cmd := exec.Command("clear")
@@ -89,6 +101,8 @@ func (peers *peers) share(path string) {
 
 func main() {
 	clearScreen()
+
+	ip = GetIP().String()
 
 	conn, err := net.Dial(connType, connHost+":"+connPort)
 	if err != nil {
@@ -194,10 +208,10 @@ func handleNewPeers(peers *peers) {
 		fmt.Println("Here")
 
 		// Somebody connected
-		newLsn, e := net.Listen(connType, connHost+":"+string(nextPort))
+		newLsn, e := net.Listen(connType, ip+":"+string(nextPort))
 		nextPort--
 		for e != nil {
-			newLsn, e = net.Listen(connType, connHost+":"+string(nextPort))
+			newLsn, e = net.Listen(connType, ip+":"+string(nextPort))
 			nextPort--
 		}
 		_, e = conn.Write([]byte(strconv.Itoa(nextPort)))
