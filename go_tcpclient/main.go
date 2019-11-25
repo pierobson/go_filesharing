@@ -17,6 +17,7 @@ const (
 	connType = "tcp4"
 )
 
+// GetIP gets the current IP
 func GetIP() net.IP {
 	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
@@ -33,9 +34,9 @@ type peers struct {
 	mtx   *sync.Mutex
 }
 
-func (peers *peers) hasPeer(ip net.IP) bool {
+func (peers *peers) hasPeer(i net.IP) bool {
 	for _, e := range peers.peers {
-		if (*e).RemoteAddr().String() == ip.String() {
+		if (*e).RemoteAddr().String() == i.String() {
 			return true
 		}
 	}
@@ -54,27 +55,34 @@ func clearScreen() {
 
 // This is not thread safe. Must synchronize outside of this function.
 func (peers *peers) getPeers(b []byte) {
+	fmt.Println(b)
 	n := 0
 	for n < len(b) {
-		ip := net.IP(b[n*4 : n*4+4])
-		if !peers.hasPeer(ip) {
+		i := net.IP(b[n*4 : n*4+4])
+		fmt.Println("HasPeer =", peers.hasPeer(i))
+		if !peers.hasPeer(i) {
+			fmt.Println(i)
 			// Clients should listen on port 666 for new connections which negotiate port to actually connect on.
-			conn, e := net.Dial(connType, ip.String()+":6667")
+			conn, e := net.Dial(connType, i.String()+":6667")
 			if e == nil {
 				var a int = 0
 				var er bool = true
 				d := make([]byte, 4)
+				fmt.Println("Before looping")
 				for a <= 0 && er {
 					a, e = conn.Read(d)
 					if e != nil {
+						fmt.Println(e.Error())
 						er = false
 					} else {
+						fmt.Println("xxx")
 						conn.Close()
-						conn, e = net.Dial(connType, ip.String()+string(d))
+						conn, e = net.Dial(connType, i.String()+string(d))
 						peers.peers = append(peers.peers, &conn)
 						go handlePeer(&conn, peers)
 					}
 				}
+				fmt.Println("What")
 			}
 		}
 		n += 4
@@ -142,13 +150,16 @@ func main() {
 				os.Exit(-1)
 			}
 		}
+		fmt.Println("Message from server.")
 		if string(buf) == "shutdown" {
 			fmt.Println("Server Disconnected...")
 			os.Exit(-2)
 		}
+		fmt.Println("Locking")
 		peers.mtx.Lock()
 		peers.getPeers(buf)
 		peers.mtx.Unlock()
+		fmt.Println("Unlocking")
 	}
 }
 
@@ -171,10 +182,10 @@ func handleUser(peers *peers) {
 				clearScreen()
 			case "share":
 				if len(args) == 2 && args[1] != "" {
-					peers.mtx.Lock()
+					//peers.mtx.Lock()
 					fmt.Println(peers.peers)
 					peers.share(args[1])
-					peers.mtx.Unlock()
+					//peers.mtx.Unlock()
 				} else {
 					fmt.Println("Usage: `share 'path'")
 				}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"sync"
 )
 
@@ -32,7 +33,8 @@ type users struct {
 func (users *users) connections() []byte {
 	b := make([]byte, 4*len(users.users))
 	for _, e := range users.users {
-		var temp []byte = net.ParseIP(e.conn.RemoteAddr().String())
+		var temp []byte = (net.ParseIP(strings.Split(e.conn.RemoteAddr().String(), ":")[0])).To4()
+		fmt.Println(temp)
 		b = append(b, temp...)
 	}
 	return b
@@ -61,6 +63,7 @@ func (users *users) addUser(user *user) {
 	users.users = append(users.users, user)
 	fmt.Println("User connected:", user.conn.RemoteAddr())
 	b := users.connections()
+	fmt.Println(b)
 	(upointer(users.users)).each(notify, b)
 	users.mtx.Unlock()
 }
