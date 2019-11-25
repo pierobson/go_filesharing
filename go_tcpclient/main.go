@@ -1,16 +1,18 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 )
 
 const (
-	connHost = "192.168.1.9"
+	connHost = "192.168.1.7"
 	connPort = "6666"
 	connType = "tcp4"
 )
@@ -30,14 +32,12 @@ func (peers *peers) hasPeer(ip net.IP) bool {
 }
 
 var output string = ""
-var next_port int = 667
+var nextPort int = 6665
 
-func updateScreen(msg string) {
-	output += string(msg)
+func clearScreen() {
 	cmd := exec.Command("clear")
 	cmd.Stdout = os.Stdout
 	cmd.Run()
-	fmt.Printf("%s\n", output)
 }
 
 // This is not thread safe. Must synchronize outside of this function.
@@ -47,7 +47,7 @@ func (peers *peers) getPeers(b []byte) {
 		ip := net.IP(b[n*4 : n*4+4])
 		if !peers.hasPeer(ip) {
 			// Clients should listen on port 666 for new connections which negotiate port to actually connect on.
-			conn, e := net.Dial(connType, ip.String()+":666")
+			conn, e := net.Dial(connType, ip.String()+":6667")
 			if e == nil {
 				var a int = 0
 				var er bool = true
@@ -69,8 +69,26 @@ func (peers *peers) getPeers(b []byte) {
 	}
 }
 
+func send(conn *net.Conn, msg string) {
+	fmt.Println("Sharing", msg, "with", (*conn).RemoteAddr().String())
+	(*conn).Write([]byte(msg))
+}
+
+type peerPointer []*net.Conn
+type fun func(*net.Conn, string)
+
+func (peers peerPointer) each(f fun, msg string) {
+	for _, e := range peers {
+		f(e, msg)
+	}
+}
+
+func (peers *peers) share(path string) {
+	(peerPointer(peers.peers)).each(send, path)
+}
+
 func main() {
-	updateScreen("")
+	clearScreen()
 
 	conn, err := net.Dial(connType, connHost+":"+connPort)
 	if err != nil {
@@ -110,7 +128,7 @@ func main() {
 				os.Exit(-1)
 			}
 		}
-		if string(buf) == "\x00\x00\x00\x00" {
+		if string(buf) == "shutdown" {
 			fmt.Println("Server Disconnected...")
 			os.Exit(-2)
 		}
@@ -122,16 +140,48 @@ func main() {
 
 // Reads input from stdin and parses commands (disconnect, share, etc.)
 func handleUser(peers *peers) {
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		cmd, e := reader.ReadString('\n')
+		if e != nil {
+			fmt.Println("Failed to read message:", e.Error())
+		}
+		cmd = cmd[:len(cmd)-1]
+		if len(cmd) > 0 {
+			args := strings.Split(cmd, " ")
+			switch args[0] {
+			case "exit":
+				fmt.Println("Disconnecting...")
+				os.Exit(1)
+			case "clear":
+				clearScreen()
+			case "share":
+				if len(args) == 2 && args[1] != "" {
+					peers.mtx.Lock()
+					fmt.Println(peers.peers)
+					peers.share(args[1])
+					peers.mtx.Unlock()
+				} else {
+					fmt.Println("Usage: `share 'path'")
+				}
+			default:
+				fmt.Println("Command does not exist:", cmd)
+			}
+		}
+	}
 }
 
 // Listens for updates to the peer list from the server.
 func handleNewPeers(peers *peers) {
-	lsn, err := net.Listen(connType, connHost+":666")
-	if err != nil {
-		fmt.Println("Error while listening:", err.Error())
-		os.Exit(-1)
+	fmt.Println("Attempting to listen on port 6667")
+	lsn, err := net.Listen(connType, connHost+":6667")
+	for err != nil {
+		fmt.Println("Attempting to listen on port", nextPort)
+		lsn, err = net.Listen(connType, connHost+":"+strconv.Itoa(nextPort))
+		nextPort--
 	}
 	defer lsn.Close()
+	fmt.Println("Listening...")
 
 	for {
 		// Wait for people to connect
@@ -141,10 +191,16 @@ func handleNewPeers(peers *peers) {
 			os.Exit(-1)
 		}
 
+		fmt.Println("Here")
+
 		// Somebody connected
-		newLsn, _ := net.Listen(connType, connHost+":"+string(next_port))
-		_, e := conn.Write([]byte(strconv.Itoa(next_port)))
-		next_port++
+		newLsn, e := net.Listen(connType, connHost+":"+string(nextPort))
+		nextPort--
+		for e != nil {
+			newLsn, e = net.Listen(connType, connHost+":"+string(nextPort))
+			nextPort--
+		}
+		_, e = conn.Write([]byte(strconv.Itoa(nextPort)))
 		if e != nil {
 			fmt.Println(e.Error())
 			break
@@ -164,5 +220,12 @@ func handleNewPeers(peers *peers) {
 *	needed in the future so I'm just going to keep it for the moment.
  */
 func handlePeer(conn *net.Conn, peers *peers) {
-
+	for {
+		n := 0
+		buf := make([]byte, 10)
+		for n <= 0 {
+			n, _ = (*conn).Read(buf)
+		}
+		fmt.Println(string(buf))
+	}
 }
